@@ -1,0 +1,2 @@
+# ClixpertS
+Smart automatization tool
