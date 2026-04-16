@@ -1,19 +1,174 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog, filedialog
+from tkinter import ttk, messagebox, filedialog
 import threading
 import time
-import win32con
-import win32gui
-import pygetwindow as gw
+import base64
+import json
+import os
+import cv2
+import numpy as np
 import pyautogui
 import keyboard
 from PIL import Image, ImageDraw
 import pystray
-import json
-import os
+
+# ---------- Языковые ресурсы ----------
+LANGUAGES = {
+    'ru': {
+        'title': 'Clixpert S',
+        'mode': 'Режим',
+        'infinite': 'Бесконечный цикл',
+        'limited': 'С ограничением',
+        'limit_params': 'Параметры ограничения',
+        'initial_count': 'Начальное кол-во:',
+        'default_deduction': 'Вычет по умолчанию:',
+        'deduction_mult': 'Множитель вычета (0..1):',
+        'deduction_hint': '(вычитается: Вычет × (1 - Множитель))',
+        'show_progress_window': 'Показывать отдельное окно прогресса',
+        'progress': 'Прогресс',
+        'progress_label': 'Прогресс: {:.2f} / {:.2f} ({:.1f}%)',
+        'eta_label': 'Осталось примерно: {}',
+        'actions': 'Последовательность действий',
+        'clear': 'Очистить',
+        'delete': 'Удалить',
+        'edit': 'Редактировать',
+        'add_delay': '+ Задержка',
+        'save_profile': 'Сохранить профиль',
+        'load_profile': 'Загрузить профиль',
+        'conditions': 'Условия',
+        'settings': 'Настройки',
+        'global_delay': 'Глоб. задержка (мс):',
+        'record_click': 'Клавиша записи клика:',
+        'record_key': 'Клавиша записи клавиши:',
+        'toggle': 'Клавиша запуска/остановки:',
+        'always_on_top': 'Окно всегда сверху',
+        'color_tolerance': 'Допуск цвета (0-50):',
+        'use_conditions': 'Применять условия (если заданы)',
+        'apply_settings': 'Применить настройки',
+        'start': 'Запустить',
+        'stop': 'Остановить',
+        'tray': 'Свернуть в трей',
+        'exit': 'Выход',
+        'waiting': 'Ожидание',
+        'cycle_running': 'Цикл запущен...',
+        'cycle_stopped': 'Цикл остановлен',
+        'cycle_finished': 'Цикл завершён',
+        'completion_title': 'Цикл успешно завершен',
+        'completion_message': 'УСПЕШНОЕ ЗАВЕРШЕНИЕ',
+        'no_actions': 'Добавьте хотя бы одно действие.',
+        'error': 'Ошибка',
+        'invalid_delay': 'Глобальная задержка должна быть неотрицательным целым числом (мс)',
+        'cannot_edit_running': 'Нельзя редактировать во время работы цикла!',
+        'select_image': 'Выберите изображение',
+        'confidence': 'Порог совпадения (0.5-1.0):',
+        'click': 'Клик',
+        'key': 'Клавиша',
+        'delay': 'Пауза',
+        'params': 'Параметры',
+        'delay_ms': 'Задержка (мс)',
+        'hold_ms': 'Удержание (мс)',
+        'condition': 'Условие',
+        'contrib': 'Вклад',
+        'edit_action': 'Редактировать действие',
+        'save': 'Сохранить',
+        'cancel': 'Отмена',
+        'language': 'Язык',
+        'hotkeys_hint': '{}: клик | {}: клавиша | {}: старт/стоп',
+        'condition_type': 'Тип условия',
+        'none': 'Нет',
+        'pixel': 'Пиксель',
+        'color_area': 'Цвет в области',
+        'image_search': 'Поиск изображения',
+        'search_area': 'Область поиска',
+        'x1': 'X1:', 'y1': 'Y1:', 'x2': 'X2:', 'y2': 'Y2:',
+        'target_color': 'Целевой цвет (RGB)',
+        'pick_color': 'Взять цвет',
+        'select_image_file': 'Выбрать файл',
+        'skip_on_true': 'Пропустить остальные, если условие выполнено',
+        'skip_on_false': 'Пропустить остальные, если условие НЕ выполнено',
+        'progress_contrib': 'Вклад в прогресс (пусто = стандартный)',
+        'wait_condition': 'Ждать выполнения условия (иначе пропустить действие)',
+    },
+    'en': {
+        'title': 'Clixpert S',
+        'mode': 'Mode',
+        'infinite': 'Infinite loop',
+        'limited': 'Limited',
+        'limit_params': 'Limit parameters',
+        'initial_count': 'Initial count:',
+        'default_deduction': 'Default deduction:',
+        'deduction_mult': 'Deduction multiplier (0..1):',
+        'deduction_hint': '(subtracted: Deduction × (1 - Multiplier))',
+        'show_progress_window': 'Show separate progress window',
+        'progress': 'Progress',
+        'progress_label': 'Progress: {:.2f} / {:.2f} ({:.1f}%)',
+        'eta_label': 'Estimated time left: {}',
+        'actions': 'Action sequence',
+        'clear': 'Clear',
+        'delete': 'Delete',
+        'edit': 'Edit',
+        'add_delay': '+ Delay',
+        'save_profile': 'Save profile',
+        'load_profile': 'Load profile',
+        'conditions': 'Conditions',
+        'settings': 'Settings',
+        'global_delay': 'Global delay (ms):',
+        'record_click': 'Record click hotkey:',
+        'record_key': 'Record key hotkey:',
+        'toggle': 'Start/stop hotkey:',
+        'always_on_top': 'Always on top',
+        'color_tolerance': 'Color tolerance (0-50):',
+        'use_conditions': 'Apply conditions (if set)',
+        'apply_settings': 'Apply settings',
+        'start': 'Start',
+        'stop': 'Stop',
+        'tray': 'Minimize to tray',
+        'exit': 'Exit',
+        'waiting': 'Waiting',
+        'cycle_running': 'Cycle running...',
+        'cycle_stopped': 'Cycle stopped',
+        'cycle_finished': 'Cycle finished',
+        'completion_title': 'Cycle completed',
+        'completion_message': 'SUCCESSFUL COMPLETION',
+        'no_actions': 'Add at least one action.',
+        'error': 'Error',
+        'invalid_delay': 'Global delay must be a non-negative integer (ms)',
+        'cannot_edit_running': 'Cannot edit while cycle is running!',
+        'select_image': 'Select image',
+        'confidence': 'Confidence threshold (0.5-1.0):',
+        'click': 'Click',
+        'key': 'Key',
+        'delay': 'Delay',
+        'params': 'Parameters',
+        'delay_ms': 'Delay (ms)',
+        'hold_ms': 'Hold (ms)',
+        'condition': 'Condition',
+        'contrib': 'Contrib',
+        'edit_action': 'Edit action',
+        'save': 'Save',
+        'cancel': 'Cancel',
+        'language': 'Language',
+        'hotkeys_hint': '{}: click | {}: key | {}: start/stop',
+        'condition_type': 'Condition type',
+        'none': 'None',
+        'pixel': 'Pixel',
+        'color_area': 'Color in area',
+        'image_search': 'Image search',
+        'search_area': 'Search area',
+        'x1': 'X1:', 'y1': 'Y1:', 'x2': 'X2:', 'y2': 'Y2:',
+        'target_color': 'Target color (RGB)',
+        'pick_color': 'Pick color',
+        'select_image_file': 'Select file',
+        'skip_on_true': 'Skip rest if condition met',
+        'skip_on_false': 'Skip rest if condition NOT met',
+        'progress_contrib': 'Contrib (empty=default)',
+        'wait_condition': 'Wait for condition (otherwise skip action)',
+    }
+}
+
 
 class ProgressWindow:
-    """Отдельное окно с прогресс-баром опыта."""
+    """Отдельное окно с прогресс-баром."""
     def __init__(self, parent_app):
         self.app = parent_app
         self.window = None
@@ -23,32 +178,36 @@ class ProgressWindow:
         if self.window is not None:
             return
         self.window = tk.Toplevel(self.app.root)
-        self.window.title("Прогресс прокачки")
+        self.window.title("Progress")
         self.window.geometry("300x120")
         self.window.overrideredirect(True)
         self.window.attributes('-topmost', True)
-        self.window.configure(bg='#2d2d2d')
+        self.window.configure(bg='#1e1e2f')
+        self.window.attributes('-alpha', 0.92)
 
         self.window.bind('<Button-1>', self.start_move)
         self.window.bind('<B1-Motion>', self.on_move)
 
-        frame = tk.Frame(self.window, bg='#2d2d2d', padx=10, pady=10)
+        frame = tk.Frame(self.window, bg='#1e1e2f', padx=10, pady=10)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        self.label = tk.Label(frame, text="Опыт: 0.00 / 0.00 (0%)",
-                              fg='white', bg='#2d2d2d', font=('Arial', 10, 'bold'))
+        self.label = tk.Label(frame, text="Progress: 0.00 / 0.00 (0%)",
+                              fg='white', bg='#1e1e2f', font=('Segoe UI', 10, 'bold'))
         self.label.pack(pady=(0, 5))
 
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure("TProgressbar", thickness=20, troughcolor='#2a2a3c', background='#5a9cff')
         self.progress = ttk.Progressbar(frame, orient=tk.HORIZONTAL, length=280, mode='determinate')
         self.progress.pack(pady=5)
 
-        self.eta_label = tk.Label(frame, text="Осталось примерно: —",
-                                  fg='white', bg='#2d2d2d', font=('Arial', 9))
+        self.eta_label = tk.Label(frame, text="Estimated time left: —",
+                                  fg='#cccccc', bg='#1e1e2f', font=('Segoe UI', 9))
         self.eta_label.pack(pady=(2, 0))
 
-        btn_frame = tk.Frame(frame, bg='#2d2d2d')
+        btn_frame = tk.Frame(frame, bg='#1e1e2f')
         btn_frame.pack(fill=tk.X, pady=(5, 0))
-        tk.Button(btn_frame, text="Скрыть", command=self.hide, bg='#555', fg='white',
+        tk.Button(btn_frame, text="Hide", command=self.hide, bg='#3a3a5c', fg='white',
                   bd=0, padx=10).pack(side=tk.RIGHT)
 
     def start_move(self, event):
@@ -65,9 +224,10 @@ class ProgressWindow:
     def update(self, current, total, percent, eta_text):
         if self.window is None or not self.window.winfo_exists():
             return
-        self.label.config(text=f"Опыт: {current:.2f} / {total:.2f} ({percent:.1f}%)")
+        lang = self.app.lang
+        self.label.config(text=LANGUAGES[lang]['progress_label'].format(current, total, percent))
         self.progress['value'] = percent
-        self.eta_label.config(text=f"Осталось примерно: {eta_text}")
+        self.eta_label.config(text=LANGUAGES[lang]['eta_label'].format(eta_text))
 
     def show(self):
         if self.window is None or not self.window.winfo_exists():
@@ -86,68 +246,180 @@ class ProgressWindow:
 
 
 class PixelConditionDialog:
-    """Окно управления пиксельными условиями."""
+    """Окно управления пиксельными условиями (для типа 'pixel')."""
     def __init__(self, parent_app):
         self.app = parent_app
         self.window = None
-        self.conditions = []  # список словарей: {'id': str, 'x': int, 'y': int, 'color': (r,g,b)}
+        self.conditions = []  # список {'id': str, 'x': int, 'y': int, 'color': (r,g,b)}
         self.create_window()
 
     def create_window(self):
         self.window = tk.Toplevel(self.app.root)
-        self.window.title("Пиксельные условия")
-        self.window.geometry("600x450")
+        self.window.title("Pixel conditions")
+        self.window.geometry("650x450")
+        self.window.configure(bg='#1e1e2f')
+        self.window.attributes('-alpha', 0.96)
         self.window.protocol("WM_DELETE_WINDOW", self.hide)
 
-        frame = ttk.Frame(self.window, padding="10")
+        frame = tk.Frame(self.window, bg='#1e1e2f', padx=10, pady=10)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        # Таблица условий
         columns = ('id', 'pos', 'color')
         self.tree = ttk.Treeview(frame, columns=columns, show='headings', height=8)
         self.tree.heading('id', text='ID')
-        self.tree.heading('pos', text='Координаты')
-        self.tree.heading('color', text='Цвет (RGB)')
+        self.tree.heading('pos', text='Coordinates')
+        self.tree.heading('color', text='Color (RGB)')
         self.tree.column('id', width=120)
         self.tree.column('pos', width=150)
         self.tree.column('color', width=150)
         self.tree.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.tree.bind('<Double-1>', self.edit_selected)
 
-        btn_frame = ttk.Frame(frame)
+        btn_frame = tk.Frame(frame, bg='#1e1e2f')
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="Добавить из текущей позиции", command=self.add_from_current).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Удалить", command=self.delete_selected).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Очистить все", command=self.clear_all).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Add", command=self.add_condition, bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Delete", command=self.delete_selected, bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="Clear all", command=self.clear_all, bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=5)
 
-        ttk.Label(frame, text="Допуск по цвету (0-50):").pack(anchor=tk.W, pady=(10,0))
+        tk.Label(frame, text="Color tolerance (0-50):", fg='white', bg='#1e1e2f').pack(anchor=tk.W, pady=(10,0))
         self.tolerance_var = tk.IntVar(value=self.app.color_tolerance_var.get())
-        ttk.Scale(frame, from_=0, to=50, variable=self.tolerance_var, orient=tk.HORIZONTAL,
-                  command=lambda v: self.app.color_tolerance_var.set(int(float(v)))).pack(fill=tk.X)
-        ttk.Label(frame, textvariable=self.tolerance_var).pack()
+        tk.Scale(frame, from_=0, to=50, variable=self.tolerance_var, orient=tk.HORIZONTAL,
+                 bg='#1e1e2f', fg='white', troughcolor='#2a2a3c', highlightbackground='#1e1e2f',
+                 command=lambda v: self.app.color_tolerance_var.set(int(float(v)))).pack(fill=tk.X)
+        tk.Label(frame, textvariable=self.tolerance_var, fg='white', bg='#1e1e2f').pack()
 
-        ttk.Button(frame, text="Закрыть", command=self.hide).pack(pady=10)
+        tk.Button(frame, text="Close", command=self.hide, bg='#3a3a5c', fg='white', bd=0).pack(pady=10)
 
         self.refresh_list()
 
-    def add_from_current(self):
-        x, y = pyautogui.position()
+    def add_condition(self, edit_item=None, existing_id=None):
+        dialog = tk.Toplevel(self.window)
+        dialog.title("Edit condition" if edit_item else "New condition")
+        dialog.geometry("350x350")
+        dialog.configure(bg='#1e1e2f')
+        dialog.transient(self.window)
+        dialog.grab_set()
+
+        tk.Label(dialog, text="ID:", fg='white', bg='#1e1e2f').pack(pady=5)
+        id_var = tk.StringVar(value=existing_id if existing_id else "")
+        tk.Entry(dialog, textvariable=id_var, bg='#2a2a3c', fg='white', insertbackground='white').pack()
+
+        coord_frame = tk.Frame(dialog, bg='#1e1e2f')
+        coord_frame.pack(pady=5)
+        tk.Label(coord_frame, text="X:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+        x_var = tk.IntVar(value=0)
+        tk.Entry(coord_frame, textvariable=x_var, width=6, bg='#2a2a3c', fg='white').pack(side=tk.LEFT, padx=5)
+        tk.Label(coord_frame, text="Y:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+        y_var = tk.IntVar(value=0)
+        tk.Entry(coord_frame, textvariable=y_var, width=6, bg='#2a2a3c', fg='white').pack(side=tk.LEFT, padx=5)
+
+        tk.Button(dialog, text="Pick coords", command=lambda: self._pick_coords(x_var, y_var), bg='#3a3a5c', fg='white').pack(pady=5)
+
+        color_frame = tk.Frame(dialog, width=50, height=50, bg='gray')
+        color_frame.pack(pady=5)
+        color_frame.pack_propagate(False)
+
+        color_label = tk.Label(dialog, text="Color: ???", fg='white', bg='#1e1e2f')
+        color_label.pack(pady=5)
+
+        rgb_frame = tk.Frame(dialog, bg='#1e1e2f')
+        rgb_frame.pack(pady=5)
+        tk.Label(rgb_frame, text="R:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+        r_var = tk.IntVar(value=0)
+        tk.Entry(rgb_frame, textvariable=r_var, width=4, bg='#2a2a3c', fg='white').pack(side=tk.LEFT, padx=2)
+        tk.Label(rgb_frame, text="G:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+        g_var = tk.IntVar(value=0)
+        tk.Entry(rgb_frame, textvariable=g_var, width=4, bg='#2a2a3c', fg='white').pack(side=tk.LEFT, padx=2)
+        tk.Label(rgb_frame, text="B:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+        b_var = tk.IntVar(value=0)
+        tk.Entry(rgb_frame, textvariable=b_var, width=4, bg='#2a2a3c', fg='white').pack(side=tk.LEFT, padx=2)
+
+        def update_display():
+            r, g, b = r_var.get(), g_var.get(), b_var.get()
+            hex_color = '#{:02x}{:02x}{:02x}'.format(r, g, b)
+            color_frame.config(bg=hex_color)
+            color_label.config(text=f"Color: ({r}, {g}, {b})")
+
+        tk.Button(dialog, text="Apply RGB", command=update_display, bg='#3a3a5c', fg='white').pack(pady=5)
+        tk.Button(dialog, text="Pick color", command=lambda: self._pick_color(x_var.get(), y_var.get(), r_var, g_var, b_var, color_frame, color_label), bg='#3a3a5c', fg='white').pack(pady=5)
+
+        if edit_item:
+            cond = self._get_condition_by_item(edit_item)
+            if cond:
+                x_var.set(cond['x'])
+                y_var.set(cond['y'])
+                r_var.set(cond['color'][0])
+                g_var.set(cond['color'][1])
+                b_var.set(cond['color'][2])
+                update_display()
+
+        def save():
+            cond_id = id_var.get().strip()
+            if not cond_id:
+                messagebox.showerror("Error", "Enter ID")
+                return
+            if not edit_item and any(c['id'] == cond_id for c in self.conditions):
+                messagebox.showerror("Error", "ID already exists")
+                return
+            color = (r_var.get(), g_var.get(), b_var.get())
+            new_cond = {'id': cond_id, 'x': x_var.get(), 'y': y_var.get(), 'color': color}
+            if edit_item:
+                for i, c in enumerate(self.conditions):
+                    if c['id'] == existing_id:
+                        self.conditions[i] = new_cond
+                        break
+            else:
+                self.conditions.append(new_cond)
+            self.refresh_list()
+            dialog.destroy()
+
+        tk.Button(dialog, text="Save", command=save, bg='#3a3a5c', fg='white').pack(pady=10)
+
+    def _pick_coords(self, x_var, y_var):
+        top = tk.Toplevel(self.window)
+        top.title("Pick coords")
+        top.geometry("250x100")
+        tk.Label(top, text="Move mouse and press SPACE").pack(pady=10)
+        top.focus_set()
+        def on_space(e):
+            if e.name == 'space':
+                x, y = pyautogui.position()
+                x_var.set(x)
+                y_var.set(y)
+                top.destroy()
+                keyboard.unhook(hook)
+        hook = keyboard.on_press(on_space)
+        top.protocol("WM_DELETE_WINDOW", lambda: (keyboard.unhook(hook), top.destroy()))
+
+    def _pick_color(self, x, y, r_var, g_var, b_var, color_frame, color_label):
         try:
             color = pyautogui.pixel(x, y)
-        except:
-            messagebox.showerror("Ошибка", "Не удалось получить цвет пикселя.")
-            return
-        cond_id = simpledialog.askstring("Идентификатор", "Введите уникальный идентификатор условия:")
-        if not cond_id:
-            return
-        if any(c['id'] == cond_id for c in self.conditions):
-            messagebox.showerror("Ошибка", "Условие с таким ID уже существует.")
-            return
-        self.conditions.append({
-            'id': cond_id,
-            'x': x, 'y': y,
-            'color': color
-        })
-        self.refresh_list()
+            r_var.set(color[0])
+            g_var.set(color[1])
+            b_var.set(color[2])
+            hex_color = '#{:02x}{:02x}{:02x}'.format(*color)
+            color_frame.config(bg=hex_color)
+            color_label.config(text=f"Color: ({color[0]}, {color[1]}, {color[2]})")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to get color: {e}")
+
+    def _get_condition_by_item(self, item):
+        values = self.tree.item(item)['values']
+        if not values:
+            return None
+        cond_id = values[0]
+        for c in self.conditions:
+            if c['id'] == cond_id:
+                return c
+        return None
+
+    def edit_selected(self, event):
+        selected = self.tree.selection()
+        if selected:
+            item = selected[0]
+            cond = self._get_condition_by_item(item)
+            if cond:
+                self.add_condition(edit_item=item, existing_id=cond['id'])
 
     def delete_selected(self):
         selected = self.tree.selection()
@@ -188,45 +460,42 @@ class PixelConditionDialog:
         if self.window:
             self.window.withdraw()
 
-
 class ClickerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Clixpert S")
-        self.root.geometry("720x800")
+        self.lang = 'ru'
+        self.root.title(LANGUAGES[self.lang]['title'])
+        self.root.geometry("920x880")
         self.root.resizable(False, False)
+        self.root.configure(bg='#1a1a2e')
+        self.root.attributes('-alpha', 0.96)
 
         self.running = False
         self.thread = None
-        # actions: {'type': 'click'/'key', 'x':x, 'y':y, 'key':key, 'delay_ms':int, 'hold_ms':int (только для клика), 'condition_id': str/None}
-        self.actions = []
-        self.target_hwnd = None
-        self.target_title = ""
+        self.actions = []          # список действий
+        self.image_cache = {}      # base64 -> np.array для поиска изображений
 
-        # Переменные параметров
-        self.powerlevel_var = tk.IntVar(value=0)
-        self.exp_initial_var = tk.DoubleVar(value=100.0)
-        self.exp_deduction_var = tk.DoubleVar(value=10.0)
+        # Переменные режима
+        self.mode_var = tk.IntVar(value=0)
+        self.initial_count_var = tk.DoubleVar(value=100.0)
+        self.deduction_var = tk.DoubleVar(value=10.0)
         self.deduction_mult_var = tk.DoubleVar(value=0.33)
+        self.current_count = self.initial_count_var.get()
+
         self.global_delay_ms_var = tk.IntVar(value=1000)
 
         self.hotkey_record_click_var = tk.StringVar(value='f2')
         self.hotkey_record_key_var = tk.StringVar(value='f3')
         self.hotkey_toggle_var = tk.StringVar(value='f1')
-        self.hotkey_pick_color_var = tk.StringVar(value='f4')
 
         self.always_on_top_var = tk.BooleanVar(value=False)
         self.show_progress_window_var = tk.BooleanVar(value=False)
-
-        # Пиксельные условия
         self.color_tolerance_var = tk.IntVar(value=10)
         self.use_conditions_var = tk.BooleanVar(value=True)
+
         self.pixel_conditions_dialog = PixelConditionDialog(self)
-
-        # Флаг ожидания клавиши для записи
         self.waiting_for_key = False
-
-        self.current_exp = self.exp_initial_var.get()
+        self.temp_key_hook = None
         self.progress_window = None
         self.tray_icon = None
 
@@ -234,11 +503,212 @@ class ClickerApp:
         self.create_widgets()
         self.root.after(100, self.init_progress_window)
 
-        self.update_exp_display()
+        self.update_count_display()
         self.register_hotkeys()
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
         self.update_always_on_top()
-        self.refresh_window_list()
+
+    # ---------- UI Creation ----------
+    def create_widgets(self):
+        self.main_frame = tk.Frame(self.root, bg='#1a1a2e', padx=10, pady=10)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Верхняя панель с языком
+        top_bar = tk.Frame(self.main_frame, bg='#1a1a2e')
+        top_bar.pack(fill=tk.X, pady=(0,5))
+        self.lang_btn = tk.Button(top_bar, text="EN", command=self.toggle_language,
+                                  bg='#3a3a5c', fg='white', bd=0, width=3)
+        self.lang_btn.pack(side=tk.RIGHT)
+
+        # Режим
+        self.mode_frame = tk.LabelFrame(self.main_frame, text=LANGUAGES[self.lang]['mode'],
+                                        bg='#1e1e2f', fg='white', padx=5, pady=5)
+        self.mode_frame.pack(fill=tk.X, pady=5)
+        tk.Radiobutton(self.mode_frame, text=LANGUAGES[self.lang]['infinite'],
+                       variable=self.mode_var, value=0, bg='#1e1e2f', fg='white',
+                       selectcolor='#1e1e2f', activebackground='#1e1e2f').pack(anchor=tk.W)
+        tk.Radiobutton(self.mode_frame, text=LANGUAGES[self.lang]['limited'],
+                       variable=self.mode_var, value=1, bg='#1e1e2f', fg='white',
+                       selectcolor='#1e1e2f', activebackground='#1e1e2f').pack(anchor=tk.W)
+
+        # Параметры ограничения
+        self.limit_frame = tk.LabelFrame(self.main_frame, text=LANGUAGES[self.lang]['limit_params'],
+                                         bg='#1e1e2f', fg='white', padx=5, pady=5)
+        self.limit_frame.pack(fill=tk.X, pady=5)
+
+        tk.Label(self.limit_frame, text=LANGUAGES[self.lang]['initial_count'],
+                 bg='#1e1e2f', fg='white').grid(row=0, column=0, sticky=tk.W, pady=2)
+        tk.Entry(self.limit_frame, textvariable=self.initial_count_var, width=10,
+                 bg='#2a2a3c', fg='white', insertbackground='white').grid(row=0, column=1, sticky=tk.W, padx=5)
+
+        tk.Label(self.limit_frame, text=LANGUAGES[self.lang]['default_deduction'],
+                 bg='#1e1e2f', fg='white').grid(row=1, column=0, sticky=tk.W, pady=2)
+        tk.Entry(self.limit_frame, textvariable=self.deduction_var, width=10,
+                 bg='#2a2a3c', fg='white', insertbackground='white').grid(row=1, column=1, sticky=tk.W, padx=5)
+
+        tk.Label(self.limit_frame, text=LANGUAGES[self.lang]['deduction_mult'],
+                 bg='#1e1e2f', fg='white').grid(row=2, column=0, sticky=tk.W, pady=2)
+        tk.Entry(self.limit_frame, textvariable=self.deduction_mult_var, width=10,
+                 bg='#2a2a3c', fg='white', insertbackground='white').grid(row=2, column=1, sticky=tk.W, padx=5)
+        tk.Label(self.limit_frame, text=LANGUAGES[self.lang]['deduction_hint'],
+                 bg='#1e1e2f', fg='#aaaaaa').grid(row=2, column=2, sticky=tk.W, padx=5)
+
+        tk.Checkbutton(self.limit_frame, text=LANGUAGES[self.lang]['show_progress_window'],
+                       variable=self.show_progress_window_var, command=self.toggle_progress_window,
+                       bg='#1e1e2f', fg='white', selectcolor='#1e1e2f', activebackground='#1e1e2f'
+                       ).grid(row=3, column=0, columnspan=3, pady=5, sticky=tk.W)
+
+        # Прогресс
+        self.progress_frame = tk.LabelFrame(self.main_frame, text=LANGUAGES[self.lang]['progress'],
+                                            bg='#1e1e2f', fg='white', padx=5, pady=5)
+        self.progress_frame.pack(fill=tk.X, pady=5)
+
+        self.count_label = tk.Label(self.progress_frame,
+                                    text=LANGUAGES[self.lang]['progress_label'].format(0.0, 0.0, 0.0),
+                                    bg='#1e1e2f', fg='white')
+        self.count_label.pack(anchor=tk.W)
+
+        style = ttk.Style()
+        style.theme_use('clam')
+        style.configure("TProgressbar", thickness=20, troughcolor='#2a2a3c', background='#5a9cff')
+        self.progress = ttk.Progressbar(self.progress_frame, orient=tk.HORIZONTAL, length=400, mode='determinate')
+        self.progress.pack(fill=tk.X, pady=5)
+
+        self.eta_label = tk.Label(self.progress_frame,
+                                  text=LANGUAGES[self.lang]['eta_label'].format('—'),
+                                  bg='#1e1e2f', fg='#cccccc')
+        self.eta_label.pack(anchor=tk.W, pady=(2,0))
+
+        # Последовательность действий
+        self.actions_frame = tk.LabelFrame(self.main_frame, text=LANGUAGES[self.lang]['actions'],
+                                           bg='#1e1e2f', fg='white', padx=5, pady=5)
+        self.actions_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        columns = ('type', 'params', 'delay', 'hold', 'cond', 'contrib')
+        self.actions_tree = ttk.Treeview(self.actions_frame, columns=columns, show='headings', height=6)
+        self.actions_tree.heading('type', text='Type')
+        self.actions_tree.heading('params', text='Params')
+        self.actions_tree.heading('delay', text='Delay (ms)')
+        self.actions_tree.heading('hold', text='Hold (ms)')
+        self.actions_tree.heading('cond', text='Cond')
+        self.actions_tree.heading('contrib', text='Contrib')
+        self.actions_tree.column('type', width=70, anchor='center')
+        self.actions_tree.column('params', width=180)
+        self.actions_tree.column('delay', width=80, anchor='center')
+        self.actions_tree.column('hold', width=80, anchor='center')
+        self.actions_tree.column('cond', width=80, anchor='center')
+        self.actions_tree.column('contrib', width=60, anchor='center')
+        self.actions_tree.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(self.actions_frame, orient=tk.VERTICAL, command=self.actions_tree.yview)
+        self.actions_tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.actions_tree.bind('<Double-1>', self.edit_action_double_click)
+
+        btn_frame = tk.Frame(self.actions_frame, bg='#1e1e2f')
+        btn_frame.pack(fill=tk.X, pady=5)
+        tk.Button(btn_frame, text=LANGUAGES[self.lang]['clear'], command=self.clear_actions,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_frame, text=LANGUAGES[self.lang]['delete'], command=self.remove_selected_action,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_frame, text=LANGUAGES[self.lang]['edit'], command=self.edit_selected_action,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_frame, text=LANGUAGES[self.lang]['add_delay'], command=self.add_delay_action,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_frame, text=LANGUAGES[self.lang]['save_profile'], command=self.save_profile,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_frame, text=LANGUAGES[self.lang]['load_profile'], command=self.load_profile,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=2)
+        tk.Button(btn_frame, text=LANGUAGES[self.lang]['conditions'], command=self.pixel_conditions_dialog.show,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=2)
+
+        hotkeys_text = LANGUAGES[self.lang]['hotkeys_hint'].format(
+            self.hotkey_record_click_var.get().upper(),
+            self.hotkey_record_key_var.get().upper(),
+            self.hotkey_toggle_var.get().upper()
+        )
+        tk.Label(self.actions_frame, text=hotkeys_text, bg='#1e1e2f', fg='#aaaaaa').pack(pady=2)
+
+        # Настройки
+        self.settings_frame = tk.LabelFrame(self.main_frame, text=LANGUAGES[self.lang]['settings'],
+                                            bg='#1e1e2f', fg='white', padx=5, pady=5)
+        self.settings_frame.pack(fill=tk.X, pady=5)
+
+        tk.Label(self.settings_frame, text=LANGUAGES[self.lang]['global_delay'],
+                 bg='#1e1e2f', fg='white').grid(row=0, column=0, sticky=tk.W, pady=2)
+        tk.Entry(self.settings_frame, textvariable=self.global_delay_ms_var, width=10,
+                 bg='#2a2a3c', fg='white', insertbackground='white').grid(row=0, column=1, sticky=tk.W, padx=5)
+
+        tk.Label(self.settings_frame, text=LANGUAGES[self.lang]['record_click'],
+                 bg='#1e1e2f', fg='white').grid(row=1, column=0, sticky=tk.W, pady=2)
+        tk.Entry(self.settings_frame, textvariable=self.hotkey_record_click_var, width=10,
+                 bg='#2a2a3c', fg='white', insertbackground='white').grid(row=1, column=1, sticky=tk.W, padx=5)
+
+        tk.Label(self.settings_frame, text=LANGUAGES[self.lang]['record_key'],
+                 bg='#1e1e2f', fg='white').grid(row=2, column=0, sticky=tk.W, pady=2)
+        tk.Entry(self.settings_frame, textvariable=self.hotkey_record_key_var, width=10,
+                 bg='#2a2a3c', fg='white', insertbackground='white').grid(row=2, column=1, sticky=tk.W, padx=5)
+
+        tk.Label(self.settings_frame, text=LANGUAGES[self.lang]['toggle'],
+                 bg='#1e1e2f', fg='white').grid(row=3, column=0, sticky=tk.W, pady=2)
+        tk.Entry(self.settings_frame, textvariable=self.hotkey_toggle_var, width=10,
+                 bg='#2a2a3c', fg='white', insertbackground='white').grid(row=3, column=1, sticky=tk.W, padx=5)
+
+        tk.Checkbutton(self.settings_frame, text=LANGUAGES[self.lang]['always_on_top'],
+                       variable=self.always_on_top_var, command=self.update_always_on_top,
+                       bg='#1e1e2f', fg='white', selectcolor='#1e1e2f', activebackground='#1e1e2f'
+                       ).grid(row=4, column=0, columnspan=2, pady=5)
+
+        tk.Label(self.settings_frame, text=LANGUAGES[self.lang]['color_tolerance'],
+                 bg='#1e1e2f', fg='white').grid(row=5, column=0, sticky=tk.W, pady=2)
+        tk.Entry(self.settings_frame, textvariable=self.color_tolerance_var, width=10,
+                 bg='#2a2a3c', fg='white', insertbackground='white').grid(row=5, column=1, sticky=tk.W, padx=5)
+
+        tk.Checkbutton(self.settings_frame, text=LANGUAGES[self.lang]['use_conditions'],
+                       variable=self.use_conditions_var,
+                       bg='#1e1e2f', fg='white', selectcolor='#1e1e2f', activebackground='#1e1e2f'
+                       ).grid(row=6, column=0, columnspan=2, pady=5)
+
+        tk.Button(self.settings_frame, text=LANGUAGES[self.lang]['apply_settings'],
+                  command=self.apply_settings, bg='#3a3a5c', fg='white', bd=0
+                  ).grid(row=7, column=0, columnspan=2, pady=10)
+
+        # Управление
+        control_frame = tk.Frame(self.main_frame, bg='#1a1a2e')
+        control_frame.pack(fill=tk.X, pady=10)
+
+        self.start_stop_btn = tk.Button(control_frame,
+                                        text=LANGUAGES[self.lang]['start'] + " (F1)",
+                                        command=self.toggle_cycle,
+                                        bg='#5a9cff', fg='white', bd=0, padx=10)
+        self.start_stop_btn.pack(side=tk.LEFT, padx=5)
+        tk.Button(control_frame, text=LANGUAGES[self.lang]['tray'], command=self.hide_window,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.LEFT, padx=5)
+        tk.Button(control_frame, text=LANGUAGES[self.lang]['exit'], command=self.quit_app,
+                  bg='#3a3a5c', fg='white', bd=0).pack(side=tk.RIGHT, padx=5)
+
+        self.status_var = tk.StringVar(value=LANGUAGES[self.lang]['waiting'])
+        tk.Label(self.main_frame, textvariable=self.status_var, bg='#1a1a2e', fg='#aaaaaa').pack(fill=tk.X, pady=5)
+
+    def toggle_language(self):
+        self.lang = 'en' if self.lang == 'ru' else 'ru'
+        self.lang_btn.config(text="RU" if self.lang == 'en' else "EN")
+        self._refresh_ui_texts()
+
+    def _refresh_ui_texts(self):
+        self.root.title(LANGUAGES[self.lang]['title'])
+        self.mode_frame.config(text=LANGUAGES[self.lang]['mode'])
+        for child in self.mode_frame.winfo_children():
+            if isinstance(child, tk.Radiobutton):
+                child.config(text=LANGUAGES[self.lang]['infinite'] if child['value']==0 else LANGUAGES[self.lang]['limited'])
+        self.limit_frame.config(text=LANGUAGES[self.lang]['limit_params'])
+        self.progress_frame.config(text=LANGUAGES[self.lang]['progress'])
+        self.actions_frame.config(text=LANGUAGES[self.lang]['actions'])
+        self.settings_frame.config(text=LANGUAGES[self.lang]['settings'])
+        self.start_stop_btn.config(text=(LANGUAGES[self.lang]['stop'] if self.running else LANGUAGES[self.lang]['start']) + f" ({self.hotkey_toggle_var.get().upper()})")
+        self.status_var.set(LANGUAGES[self.lang]['cycle_running'] if self.running else LANGUAGES[self.lang]['waiting'])
+        self.update_count_display()
 
     def init_progress_window(self):
         self.progress_window = ProgressWindow(self)
@@ -256,13 +726,13 @@ class ClickerApp:
                 self.progress_window.hide()
 
     def create_tray_icon(self):
-        image = Image.new('RGB', (64, 64), color='gray')
+        image = Image.new('RGB', (64,64), color='gray')
         draw = ImageDraw.Draw(image)
-        draw.rectangle((16, 16, 48, 48), fill='blue')
-        draw.text((20, 20), "CS", fill='white')
+        draw.rectangle((16,16,48,48), fill='blue')
+        draw.text((20,20), "CS", fill='white')
         menu = pystray.Menu(
-            pystray.MenuItem("Показать", self.show_window, default=True),
-            pystray.MenuItem("Выход", self.quit_app)
+            pystray.MenuItem("Show", self.show_window, default=True),
+            pystray.MenuItem("Exit", self.quit_app)
         )
         self.tray_icon = pystray.Icon("clixpert", image, "Clixpert S", menu)
 
@@ -272,7 +742,7 @@ class ClickerApp:
     def hide_window(self, *_):
         self.root.withdraw()
         if self.tray_icon:
-            self.tray_icon.notify("Clixpert S свёрнут в трей.\nГорячие клавиши активны.", "Clixpert S")
+            self.tray_icon.notify("Clixpert S minimized to tray.\nHotkeys active.", "Clixpert S")
 
     def quit_app(self, *_):
         self.running = False
@@ -289,235 +759,30 @@ class ClickerApp:
     def update_always_on_top(self):
         self.root.attributes('-topmost', self.always_on_top_var.get())
 
-    def create_widgets(self):
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # --- Выбор окна ---
-        window_frame = ttk.LabelFrame(main_frame, text="Целевое окно", padding="5")
-        window_frame.pack(fill=tk.X, pady=5)
-
-        top_win_frame = ttk.Frame(window_frame)
-        top_win_frame.pack(fill=tk.X)
-        ttk.Label(top_win_frame, text="Выберите окно:").pack(side=tk.LEFT)
-        self.window_combobox = ttk.Combobox(top_win_frame, state="readonly", width=40)
-        self.window_combobox.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
-        ttk.Button(top_win_frame, text="Обновить", command=self.refresh_window_list).pack(side=tk.LEFT, padx=5)
-
-        self.selected_window_label = ttk.Label(window_frame, text="Окно не выбрано")
-        self.selected_window_label.pack(anchor=tk.W, pady=2)
-        self.window_combobox.bind('<<ComboboxSelected>>', self.on_window_select)
-
-        # --- Режим работы ---
-        mode_frame = ttk.LabelFrame(main_frame, text="Режим", padding="5")
-        mode_frame.pack(fill=tk.X, pady=5)
-        ttk.Radiobutton(mode_frame, text="Обычный (бесконечный цикл)", variable=self.powerlevel_var, value=0).pack(anchor=tk.W)
-        ttk.Radiobutton(mode_frame, text="Прокачка (с опытом)", variable=self.powerlevel_var, value=1).pack(anchor=tk.W)
-
-        # --- Параметры опыта ---
-        exp_frame = ttk.LabelFrame(main_frame, text="Параметры опыта (для режима прокачки)", padding="5")
-        exp_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Label(exp_frame, text="Начальный опыт:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(exp_frame, textvariable=self.exp_initial_var, width=10).grid(row=0, column=1, sticky=tk.W, padx=5)
-
-        ttk.Label(exp_frame, text="Вычет (EXP_DEDUCTION):").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(exp_frame, textvariable=self.exp_deduction_var, width=10).grid(row=1, column=1, sticky=tk.W, padx=5)
-
-        ttk.Label(exp_frame, text="Множитель вычета (0..1):").grid(row=2, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(exp_frame, textvariable=self.deduction_mult_var, width=10).grid(row=2, column=1, sticky=tk.W, padx=5)
-        ttk.Label(exp_frame, text="(вычитается: Вычет × (1 - Множитель))").grid(row=2, column=2, sticky=tk.W, padx=5)
-
-        ttk.Checkbutton(exp_frame, text="Показывать отдельное окно прогресса",
-                        variable=self.show_progress_window_var,
-                        command=self.toggle_progress_window).grid(row=3, column=0, columnspan=3, pady=5, sticky=tk.W)
-
-        # --- Последовательность действий ---
-        actions_frame = ttk.LabelFrame(main_frame, text="Последовательность действий", padding="5")
-        actions_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-
-        # Treeview для отображения действий
-        columns = ('type', 'params', 'delay', 'hold', 'cond')
-        self.actions_tree = ttk.Treeview(actions_frame, columns=columns, show='headings', height=6)
-        self.actions_tree.heading('type', text='Тип')
-        self.actions_tree.heading('params', text='Параметры')
-        self.actions_tree.heading('delay', text='Задержка (мс)')
-        self.actions_tree.heading('hold', text='Удержание (мс)')
-        self.actions_tree.heading('cond', text='Условие')
-        self.actions_tree.column('type', width=70, anchor='center')
-        self.actions_tree.column('params', width=180)
-        self.actions_tree.column('delay', width=90, anchor='center')
-        self.actions_tree.column('hold', width=90, anchor='center')
-        self.actions_tree.column('cond', width=90, anchor='center')
-        self.actions_tree.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar = ttk.Scrollbar(actions_frame, orient=tk.VERTICAL, command=self.actions_tree.yview)
-        self.actions_tree.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.actions_tree.bind('<Double-1>', self.edit_action_double_click)
-
-        btn_frame = ttk.Frame(actions_frame)
-        btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(btn_frame, text="Очистить список", command=self.clear_actions).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Удалить выбранное", command=self.remove_selected_action).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Редактировать", command=self.edit_selected_action).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Сохранить профиль", command=self.save_profile).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Загрузить профиль", command=self.load_profile).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Пиксельные условия", command=self.pixel_conditions_dialog.show).pack(side=tk.LEFT, padx=5)
-
-        hotkeys_info = (
-            f"F2: запись клика | F3: запись клавиши | F4: цвет пикселя | F1: пуск/стоп"
-        )
-        ttk.Label(actions_frame, text=hotkeys_info).pack(pady=2)
-
-        # --- Настройки ---
-        settings_frame = ttk.LabelFrame(main_frame, text="Настройки", padding="5")
-        settings_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Label(settings_frame, text="Глоб. задержка (мс):").grid(row=0, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(settings_frame, textvariable=self.global_delay_ms_var, width=10).grid(row=0, column=1, sticky=tk.W, padx=5)
-
-        ttk.Label(settings_frame, text="Клавиша записи клика:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(settings_frame, textvariable=self.hotkey_record_click_var, width=10).grid(row=1, column=1, sticky=tk.W, padx=5)
-
-        ttk.Label(settings_frame, text="Клавиша записи клавиши:").grid(row=2, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(settings_frame, textvariable=self.hotkey_record_key_var, width=10).grid(row=2, column=1, sticky=tk.W, padx=5)
-
-        ttk.Label(settings_frame, text="Клавиша запуска/остановки:").grid(row=3, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(settings_frame, textvariable=self.hotkey_toggle_var, width=10).grid(row=3, column=1, sticky=tk.W, padx=5)
-
-        ttk.Label(settings_frame, text="Клавиша цвета пикселя:").grid(row=4, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(settings_frame, textvariable=self.hotkey_pick_color_var, width=10).grid(row=4, column=1, sticky=tk.W, padx=5)
-
-        ttk.Checkbutton(settings_frame, text="Окно всегда сверху", variable=self.always_on_top_var,
-                        command=self.update_always_on_top).grid(row=5, column=0, columnspan=2, pady=5)
-
-        ttk.Label(settings_frame, text="Допуск цвета (0-50):").grid(row=6, column=0, sticky=tk.W, pady=2)
-        ttk.Entry(settings_frame, textvariable=self.color_tolerance_var, width=10).grid(row=6, column=1, sticky=tk.W, padx=5)
-
-        ttk.Checkbutton(settings_frame, text="Применять пиксельные условия (если заданы)",
-                        variable=self.use_conditions_var).grid(row=7, column=0, columnspan=2, pady=5)
-
-        ttk.Button(settings_frame, text="Применить настройки", command=self.apply_settings).grid(row=8, column=0, columnspan=2, pady=10)
-
-        # --- Прогресс опыт ---
-        status_frame = ttk.LabelFrame(main_frame, text="Опыт", padding="5")
-        status_frame.pack(fill=tk.X, pady=5)
-
-        self.exp_label = ttk.Label(status_frame, text="Опыт: 0.00 / 0.00 (0%)")
-        self.exp_label.pack(anchor=tk.W)
-
-        self.progress = ttk.Progressbar(status_frame, orient=tk.HORIZONTAL, length=400, mode='determinate')
-        self.progress.pack(fill=tk.X, pady=5)
-
-        self.eta_label = ttk.Label(status_frame, text="Осталось примерно: —")
-        self.eta_label.pack(anchor=tk.W, pady=(2, 0))
-
-        # --- Управление ---
-        control_frame = ttk.Frame(main_frame)
-        control_frame.pack(fill=tk.X, pady=10)
-
-        self.start_stop_btn = ttk.Button(control_frame, text="Запустить цикл (F1)", command=self.toggle_cycle)
-        self.start_stop_btn.pack(side=tk.LEFT, padx=5)
-
-        ttk.Button(control_frame, text="Свернуть в трей", command=self.hide_window).pack(side=tk.LEFT, padx=5)
-        ttk.Button(control_frame, text="Выход", command=self.quit_app).pack(side=tk.RIGHT, padx=5)
-
-        self.status_var = tk.StringVar(value="Ожидание")
-        ttk.Label(main_frame, textvariable=self.status_var).pack(fill=tk.X, pady=5)
-
-    def refresh_window_list(self):
-        """Обновляет список окон в выпадающем списке."""
-        windows = gw.getAllWindows()
-        titles = [w.title for w in windows if w.title.strip() != ""]
-        self.window_combobox['values'] = titles
-        if titles:
-            self.window_combobox.current(0)
-            self.on_window_select()
-
-    def on_window_select(self, event=None):
-        """Обработчик выбора окна."""
-        title = self.window_combobox.get()
-        if title:
-            try:
-                windows = gw.getWindowsWithTitle(title)
-                if windows:
-                    win = windows[0]
-                    self.target_hwnd = win._hWnd
-                    self.target_title = title
-                    self.selected_window_label.config(text=f"Выбрано: {title} (HWND: {self.target_hwnd})")
-                else:
-                    self.target_hwnd = None
-                    self.target_title = ""
-                    self.selected_window_label.config(text="Окно не найдено")
-            except Exception as e:
-                self.target_hwnd = None
-                self.target_title = ""
-                self.selected_window_label.config(text=f"Ошибка: {e}")
-
+    # ---------- Hotkeys & Recording ----------
     def register_hotkeys(self):
         keyboard.unhook_all()
-        click_key = self.hotkey_record_click_var.get().strip()
-        key_key = self.hotkey_record_key_var.get().strip()
-        toggle_key = self.hotkey_toggle_var.get().strip()
-        color_key = self.hotkey_pick_color_var.get().strip()
-        if click_key:
-            keyboard.add_hotkey(click_key, self.record_click_action)
-        if key_key:
-            keyboard.add_hotkey(key_key, self.start_key_recording)
-        if toggle_key:
-            keyboard.add_hotkey(toggle_key, self.toggle_cycle)
-        if color_key:
-            keyboard.add_hotkey(color_key, self.pick_color_action)
-        # Дополнительный хук для захвата клавиши при ожидании
-        keyboard.on_press(self._on_key_press_for_recording)
-
-    def _on_key_press_for_recording(self, event):
-        if self.waiting_for_key:
-            # Игнорируем служебные клавиши-модификаторы
-            if event.name in ('shift', 'ctrl', 'alt', 'windows', 'right shift', 'right ctrl', 'right alt'):
-                return
-            self.waiting_for_key = False
-            self.root.after(0, lambda: self._add_key_action(event.name))
-
-    def start_key_recording(self):
-        if self.running:
-            self.status_var.set("Нельзя добавлять действия во время работы цикла!")
-            return
-        self.status_var.set("Ожидание нажатия клавиши... Нажмите нужную клавишу.")
-        self.waiting_for_key = True
-
-    def _add_key_action(self, key_name):
-        action = {
-            'type': 'key',
-            'key': key_name,
-            'delay_ms': self.global_delay_ms_var.get(),
-            'hold_ms': 0,
-            'condition_id': None
-        }
-        self.actions.append(action)
-        self._add_action_to_tree(action)
-        self.status_var.set(f"Добавлена клавиша: {key_name}")
+        if self.hotkey_record_click_var.get():
+            keyboard.add_hotkey(self.hotkey_record_click_var.get().strip(), self.record_click_action)
+        if self.hotkey_record_key_var.get():
+            keyboard.add_hotkey(self.hotkey_record_key_var.get().strip(), self.start_key_recording)
+        if self.hotkey_toggle_var.get():
+            keyboard.add_hotkey(self.hotkey_toggle_var.get().strip(), self.toggle_cycle)
 
     def apply_settings(self):
         try:
-            delay = self.global_delay_ms_var.get()
-            if delay < 0:
+            if self.global_delay_ms_var.get() < 0:
                 raise ValueError
         except:
-            messagebox.showerror("Ошибка", "Глобальная задержка должна быть неотрицательным целым числом (мс)")
+            messagebox.showerror(LANGUAGES[self.lang]['error'], LANGUAGES[self.lang]['invalid_delay'])
             return
-
         self.register_hotkeys()
-        toggle_key = self.hotkey_toggle_var.get().strip()
-        self.start_stop_btn.config(text=f"Запустить цикл ({toggle_key.upper()})")
-        self.status_var.set("Настройки применены")
+        self.start_stop_btn.config(text=(LANGUAGES[self.lang]['stop'] if self.running else LANGUAGES[self.lang]['start']) + f" ({self.hotkey_toggle_var.get().upper()})")
+        self.status_var.set(LANGUAGES[self.lang]['waiting'])
 
     def record_click_action(self):
-        """Запись клика мышью."""
         if self.running:
-            self.status_var.set("Нельзя добавлять действия во время работы цикла!")
+            self.status_var.set(LANGUAGES[self.lang]['cannot_edit_running'])
             return
         x, y = pyautogui.position()
         action = {
@@ -525,196 +790,328 @@ class ClickerApp:
             'x': x, 'y': y,
             'delay_ms': self.global_delay_ms_var.get(),
             'hold_ms': 0,
-            'condition_id': None
+            'condition': None,
+            'wait_condition': False,
+            'skip_on_true': False,
+            'skip_on_false': False,
+            'progress_contrib': None
         }
         self.actions.append(action)
         self._add_action_to_tree(action)
-        self.status_var.set(f"Добавлен клик: ({x}, {y})")
+        self.status_var.set(f"Click added: ({x}, {y})")
 
-    def pick_color_action(self):
-        """Получить цвет пикселя под курсором и показать."""
-        x, y = pyautogui.position()
-        try:
-            color = pyautogui.pixel(x, y)
-            hex_color = '#{:02x}{:02x}{:02x}'.format(*color)
-            self.status_var.set(f"Цвет пикселя ({x},{y}): RGB{color} HEX {hex_color}")
-        except Exception as e:
-            self.status_var.set(f"Ошибка получения цвета: {e}")
+    def start_key_recording(self):
+        if self.running:
+            self.status_var.set(LANGUAGES[self.lang]['cannot_edit_running'])
+            return
+        self.status_var.set("Press a key...")
+        self.waiting_for_key = True
+        def handler(e):
+            if self.waiting_for_key and e.name not in ('shift','ctrl','alt','windows','right shift','right ctrl','right alt'):
+                self.waiting_for_key = False
+                keyboard.unhook(self.temp_key_hook)
+                self.root.after(0, lambda: self._add_key_action(e.name))
+        self.temp_key_hook = keyboard.on_press(handler)
+        self.root.after(10000, self._cancel_key_recording)
+
+    def _cancel_key_recording(self):
+        if self.waiting_for_key:
+            self.waiting_for_key = False
+            keyboard.unhook(self.temp_key_hook)
+            self.status_var.set("Key recording cancelled")
+
+    def _add_key_action(self, key_name):
+        action = {
+            'type': 'key',
+            'key': key_name,
+            'delay_ms': self.global_delay_ms_var.get(),
+            'hold_ms': 0,
+            'condition': None,
+            'wait_condition': False,
+            'skip_on_true': False,
+            'skip_on_false': False,
+            'progress_contrib': None
+        }
+        self.actions.append(action)
+        self._add_action_to_tree(action)
+        self.status_var.set(f"Key added: {key_name}")
+
+    def add_delay_action(self):
+        if self.running:
+            self.status_var.set(LANGUAGES[self.lang]['cannot_edit_running'])
+            return
+        d = tk.Toplevel(self.root)
+        d.title("Add delay")
+        d.geometry("250x120")
+        d.configure(bg='#1e1e2f')
+        d.transient(self.root)
+        d.grab_set()
+        tk.Label(d, text="Delay (ms):", fg='white', bg='#1e1e2f').pack(pady=10)
+        v = tk.IntVar(value=1000)
+        tk.Entry(d, textvariable=v, width=15, bg='#2a2a3c', fg='white').pack()
+        def save():
+            action = {'type': 'delay', 'delay_ms': v.get(), 'progress_contrib': None}
+            self.actions.append(action)
+            self._add_action_to_tree(action)
+            d.destroy()
+        tk.Button(d, text="Add", command=save, bg='#3a3a5c', fg='white').pack(pady=10)
 
     def _add_action_to_tree(self, action):
-        """Добавляет действие в Treeview."""
         if action['type'] == 'click':
             params = f"X={action['x']}, Y={action['y']}"
-            hold = f"{action.get('hold_ms', 0)}"
-        else:
+            hold = str(action.get('hold_ms', 0))
+            cond = action['condition']['type'] if action.get('condition') else '—'
+        elif action['type'] == 'key':
             params = f"Key: {action['key']}"
-            hold = "—"
+            hold = '—'
+            cond = action['condition']['type'] if action.get('condition') else '—'
+        else:  # delay
+            params = "Pause"
+            hold = '—'
+            cond = '—'
         delay = action.get('delay_ms', self.global_delay_ms_var.get())
-        cond = action.get('condition_id', '') or '—'
-        item = self.actions_tree.insert('', tk.END,
-                                        values=(action['type'].capitalize(), params, delay, hold, cond))
+        contrib = action.get('progress_contrib')
+        item = self.actions_tree.insert('', tk.END, values=(
+            action['type'].capitalize(), params, delay, hold, cond,
+            f"{contrib:.2f}" if contrib is not None else "—"
+        ))
         action['tree_iid'] = item
 
     def clear_actions(self):
         if self.running:
-            self.status_var.set("Нельзя очищать список во время работы цикла!")
+            self.status_var.set(LANGUAGES[self.lang]['cannot_edit_running'])
             return
         self.actions.clear()
-        for item in self.actions_tree.get_children():
-            self.actions_tree.delete(item)
-        self.status_var.set("Список действий очищен")
+        self.actions_tree.delete(*self.actions_tree.get_children())
+        self.status_var.set("Actions cleared")
 
     def remove_selected_action(self):
         if self.running:
-            self.status_var.set("Нельзя изменять список во время работы цикла!")
+            self.status_var.set(LANGUAGES[self.lang]['cannot_edit_running'])
             return
-        selected = self.actions_tree.selection()
-        if selected:
-            for item in selected:
-                for i, act in enumerate(self.actions):
-                    if act.get('tree_iid') == item:
-                        del self.actions[i]
-                        break
-                self.actions_tree.delete(item)
-            self.status_var.set("Действие удалено")
+        for item in self.actions_tree.selection():
+            for i, act in enumerate(self.actions):
+                if act.get('tree_iid') == item:
+                    del self.actions[i]
+                    break
+            self.actions_tree.delete(item)
 
     def edit_selected_action(self):
-        selected = self.actions_tree.selection()
-        if selected:
-            self.edit_action_double_click(None, item=selected[0])
+        sel = self.actions_tree.selection()
+        if sel:
+            self.edit_action_double_click(None, item=sel[0])
 
     def edit_action_double_click(self, event, item=None):
-        """Двойной клик для редактирования задержки, удержания, координат, условия и клавиши."""
         if self.running:
-            self.status_var.set("Нельзя редактировать во время работы цикла!")
+            self.status_var.set(LANGUAGES[self.lang]['cannot_edit_running'])
             return
         if item is None:
-            selected = self.actions_tree.selection()
-            if not selected:
+            sel = self.actions_tree.selection()
+            if not sel:
                 return
-            item = selected[0]
-        action = None
-        for act in self.actions:
-            if act.get('tree_iid') == item:
-                action = act
-                break
+            item = sel[0]
+        action = next((a for a in self.actions if a.get('tree_iid') == item), None)
         if not action:
             return
 
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Редактировать действие")
-        dialog.geometry("450x400")
-        dialog.transient(self.root)
-        dialog.grab_set()
+        d = tk.Toplevel(self.root)
+        d.title(LANGUAGES[self.lang]['edit_action'])
+        d.geometry("550x700")
+        d.configure(bg='#1e1e2f')
+        d.transient(self.root)
+        d.grab_set()
 
-        # Общие поля
-        ttk.Label(dialog, text="Задержка перед выполнением (мс):").pack(pady=5)
+        # Задержка
+        tk.Label(d, text=LANGUAGES[self.lang]['delay_ms'], fg='white', bg='#1e1e2f').pack(pady=5)
         delay_var = tk.IntVar(value=action.get('delay_ms', self.global_delay_ms_var.get()))
-        ttk.Entry(dialog, textvariable=delay_var, width=15).pack()
+        tk.Entry(d, textvariable=delay_var, width=15, bg='#2a2a3c', fg='white').pack()
 
+        # Параметры в зависимости от типа
         if action['type'] == 'click':
-            # Координаты
-            coord_frame = ttk.Frame(dialog)
-            coord_frame.pack(pady=5)
-            ttk.Label(coord_frame, text="X:").pack(side=tk.LEFT)
-            x_var = tk.IntVar(value=action['x'])
-            ttk.Entry(coord_frame, textvariable=x_var, width=6).pack(side=tk.LEFT, padx=5)
-            ttk.Label(coord_frame, text="Y:").pack(side=tk.LEFT)
-            y_var = tk.IntVar(value=action['y'])
-            ttk.Entry(coord_frame, textvariable=y_var, width=6).pack(side=tk.LEFT, padx=5)
-            ttk.Button(coord_frame, text="Взять текущие",
-                       command=lambda: self._update_coords_from_mouse(x_var, y_var)).pack(side=tk.LEFT, padx=5)
+            f = tk.Frame(d, bg='#1e1e2f')
+            f.pack(pady=5)
+            tk.Label(f, text="X:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+            xv = tk.IntVar(value=action['x'])
+            tk.Entry(f, textvariable=xv, width=6, bg='#2a2a3c', fg='white').pack(side=tk.LEFT, padx=5)
+            tk.Label(f, text="Y:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+            yv = tk.IntVar(value=action['y'])
+            tk.Entry(f, textvariable=yv, width=6, bg='#2a2a3c', fg='white').pack(side=tk.LEFT, padx=5)
+            tk.Button(f, text="Get current", command=lambda: (xv.set(pyautogui.position()[0]), yv.set(pyautogui.position()[1])),
+                      bg='#3a3a5c', fg='white').pack(side=tk.LEFT, padx=5)
 
-            # Удержание
-            ttk.Label(dialog, text="Время удержания кнопки (мс, 0 = клик):").pack(pady=5)
+            tk.Label(d, text=LANGUAGES[self.lang]['hold_ms'], fg='white', bg='#1e1e2f').pack(pady=5)
             hold_var = tk.IntVar(value=action.get('hold_ms', 0))
-            ttk.Entry(dialog, textvariable=hold_var, width=15).pack()
+            tk.Entry(d, textvariable=hold_var, width=15, bg='#2a2a3c', fg='white').pack()
 
-            # Условие
-            cond_frame = ttk.LabelFrame(dialog, text="Условие по цвету", padding=5)
-            cond_frame.pack(fill=tk.X, pady=10, padx=10)
-
-            cond_var = tk.StringVar(value=action.get('condition_id', ''))
-            cond_ids = [''] + [c['id'] for c in self.pixel_conditions_dialog.conditions]
-            cond_combo = ttk.Combobox(cond_frame, textvariable=cond_var, values=cond_ids, state='readonly', width=25)
-            cond_combo.pack(side=tk.LEFT, padx=5)
-
-            ttk.Button(cond_frame, text="Создать условие из текущей позиции",
-                       command=lambda: self._create_condition_from_current(cond_var, cond_combo)).pack(side=tk.LEFT)
-
-            ttk.Checkbutton(cond_frame, text="Использовать условие",
-                            variable=tk.BooleanVar(value=bool(action.get('condition_id'))),
-                            command=lambda: cond_var.set('') if not cond_var.get() else None).pack()
-        else:
-            # Клавиша
-            key_frame = ttk.Frame(dialog)
-            key_frame.pack(pady=5)
-            ttk.Label(key_frame, text="Клавиша:").pack(side=tk.LEFT)
+        elif action['type'] == 'key':
+            f = tk.Frame(d, bg='#1e1e2f')
+            f.pack(pady=5)
+            tk.Label(f, text="Key:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
             key_var = tk.StringVar(value=action['key'])
-            key_combo = ttk.Combobox(key_frame, textvariable=key_var, values=self._get_key_list(), width=15)
-            key_combo.pack(side=tk.LEFT, padx=5)
-            ttk.Button(key_frame, text="Записать нажатие",
-                       command=lambda: self._record_key_for_dialog(key_var, dialog)).pack(side=tk.LEFT, padx=5)
+            cb = ttk.Combobox(f, textvariable=key_var, values=self._get_key_list(), width=15)
+            cb.pack(side=tk.LEFT, padx=5)
+            tk.Button(f, text="Record", command=lambda: self._record_key_for_dialog(key_var, d),
+                      bg='#3a3a5c', fg='white').pack(side=tk.LEFT)
 
-        def save_changes():
+        # Блок условия
+        cond_frame = tk.LabelFrame(d, text=LANGUAGES[self.lang]['condition'], bg='#1e1e2f', fg='white', padx=5, pady=5)
+        cond_frame.pack(fill=tk.X, pady=10, padx=10)
+
+        cond_type_var = tk.StringVar(value=action.get('condition', {}).get('type', 'none') if action.get('condition') else 'none')
+        types = ['none', 'pixel', 'color_area', 'image_search']
+        cb_type = ttk.Combobox(cond_frame, textvariable=cond_type_var, values=types, state='readonly', width=20)
+        cb_type.pack(pady=5)
+
+        # Контейнер для динамических параметров условия
+        cond_params_frame = tk.Frame(cond_frame, bg='#1e1e2f')
+        cond_params_frame.pack(fill=tk.X, pady=5)
+
+        # Флажки
+        wait_var = tk.BooleanVar(value=action.get('wait_condition', False))
+        tk.Checkbutton(d, text=LANGUAGES[self.lang]['wait_condition'], variable=wait_var,
+                       bg='#1e1e2f', fg='white', selectcolor='#1e1e2f', activebackground='#1e1e2f').pack(anchor=tk.W, pady=5)
+
+        skip_true_var = tk.BooleanVar(value=action.get('skip_on_true', False))
+        tk.Checkbutton(d, text=LANGUAGES[self.lang]['skip_on_true'], variable=skip_true_var,
+                       bg='#1e1e2f', fg='white', selectcolor='#1e1e2f', activebackground='#1e1e2f').pack(anchor=tk.W)
+        skip_false_var = tk.BooleanVar(value=action.get('skip_on_false', False))
+        tk.Checkbutton(d, text=LANGUAGES[self.lang]['skip_on_false'], variable=skip_false_var,
+                       bg='#1e1e2f', fg='white', selectcolor='#1e1e2f', activebackground='#1e1e2f').pack(anchor=tk.W)
+
+        # Вклад в прогресс
+        tk.Label(d, text=LANGUAGES[self.lang]['progress_contrib'], fg='white', bg='#1e1e2f').pack(pady=5)
+        contrib_var = tk.StringVar(value=str(action.get('progress_contrib', '')))
+        tk.Entry(d, textvariable=contrib_var, width=15, bg='#2a2a3c', fg='white').pack()
+
+        # Функция обновления панели параметров условия
+        def update_cond_params(*args):
+            for w in cond_params_frame.winfo_children():
+                w.destroy()
+            t = cond_type_var.get()
+            if t == 'pixel':
+                tk.Label(cond_params_frame, text="Pixel ID:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+                ids = [''] + [c['id'] for c in self.pixel_conditions_dialog.conditions]
+                pixel_id_var = tk.StringVar(value=action.get('condition', {}).get('id', '') if action.get('condition') else '')
+                cb = ttk.Combobox(cond_params_frame, textvariable=pixel_id_var, values=ids, state='readonly', width=15)
+                cb.pack(side=tk.LEFT, padx=5)
+                cond_params_frame.pixel_id_var = pixel_id_var
+            elif t == 'color_area':
+                # Область
+                tk.Label(cond_params_frame, text="X1:", fg='white', bg='#1e1e2f').grid(row=0, column=0)
+                x1v = tk.IntVar(value=action.get('condition', {}).get('area', [0,0,100,100])[0] if action.get('condition') else 0)
+                tk.Entry(cond_params_frame, textvariable=x1v, width=5, bg='#2a2a3c', fg='white').grid(row=0, column=1)
+                tk.Label(cond_params_frame, text="Y1:", fg='white', bg='#1e1e2f').grid(row=0, column=2)
+                y1v = tk.IntVar(value=action.get('condition', {}).get('area', [0,0,100,100])[1] if action.get('condition') else 0)
+                tk.Entry(cond_params_frame, textvariable=y1v, width=5, bg='#2a2a3c', fg='white').grid(row=0, column=3)
+                tk.Label(cond_params_frame, text="X2:", fg='white', bg='#1e1e2f').grid(row=1, column=0)
+                x2v = tk.IntVar(value=action.get('condition', {}).get('area', [0,0,100,100])[2] if action.get('condition') else 100)
+                tk.Entry(cond_params_frame, textvariable=x2v, width=5, bg='#2a2a3c', fg='white').grid(row=1, column=1)
+                tk.Label(cond_params_frame, text="Y2:", fg='white', bg='#1e1e2f').grid(row=1, column=2)
+                y2v = tk.IntVar(value=action.get('condition', {}).get('area', [0,0,100,100])[3] if action.get('condition') else 100)
+                tk.Entry(cond_params_frame, textvariable=y2v, width=5, bg='#2a2a3c', fg='white').grid(row=1, column=3)
+                # Цвет
+                tk.Label(cond_params_frame, text="R:", fg='white', bg='#1e1e2f').grid(row=2, column=0)
+                rv = tk.IntVar(value=action.get('condition', {}).get('color', [0,0,0])[0] if action.get('condition') else 0)
+                tk.Entry(cond_params_frame, textvariable=rv, width=4, bg='#2a2a3c', fg='white').grid(row=2, column=1)
+                tk.Label(cond_params_frame, text="G:", fg='white', bg='#1e1e2f').grid(row=2, column=2)
+                gv = tk.IntVar(value=action.get('condition', {}).get('color', [0,0,0])[1] if action.get('condition') else 0)
+                tk.Entry(cond_params_frame, textvariable=gv, width=4, bg='#2a2a3c', fg='white').grid(row=2, column=3)
+                tk.Label(cond_params_frame, text="B:", fg='white', bg='#1e1e2f').grid(row=2, column=4)
+                bv = tk.IntVar(value=action.get('condition', {}).get('color', [0,0,0])[2] if action.get('condition') else 0)
+                tk.Entry(cond_params_frame, textvariable=bv, width=4, bg='#2a2a3c', fg='white').grid(row=2, column=5)
+                cond_params_frame.vars = (x1v, y1v, x2v, y2v, rv, gv, bv)
+            elif t == 'image_search':
+                tk.Label(cond_params_frame, text="Image file:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+                img_path_var = tk.StringVar()
+                tk.Entry(cond_params_frame, textvariable=img_path_var, width=25, bg='#2a2a3c', fg='white').pack(side=tk.LEFT, padx=5)
+                tk.Button(cond_params_frame, text="Browse", command=lambda: self._browse_image(img_path_var),
+                          bg='#3a3a5c', fg='white').pack(side=tk.LEFT)
+                # Область поиска
+                area_frame = tk.Frame(cond_params_frame, bg='#1e1e2f')
+                area_frame.pack(pady=5)
+                tk.Label(area_frame, text="X1:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+                x1v = tk.IntVar(value=action.get('condition', {}).get('area', [0,0,1920,1080])[0] if action.get('condition') else 0)
+                tk.Entry(area_frame, textvariable=x1v, width=5, bg='#2a2a3c', fg='white').pack(side=tk.LEFT)
+                tk.Label(area_frame, text="Y1:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+                y1v = tk.IntVar(value=action.get('condition', {}).get('area', [0,0,1920,1080])[1] if action.get('condition') else 0)
+                tk.Entry(area_frame, textvariable=y1v, width=5, bg='#2a2a3c', fg='white').pack(side=tk.LEFT)
+                tk.Label(area_frame, text="X2:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+                x2v = tk.IntVar(value=action.get('condition', {}).get('area', [0,0,1920,1080])[2] if action.get('condition') else 1920)
+                tk.Entry(area_frame, textvariable=x2v, width=5, bg='#2a2a3c', fg='white').pack(side=tk.LEFT)
+                tk.Label(area_frame, text="Y2:", fg='white', bg='#1e1e2f').pack(side=tk.LEFT)
+                y2v = tk.IntVar(value=action.get('condition', {}).get('area', [0,0,1920,1080])[3] if action.get('condition') else 1080)
+                tk.Entry(area_frame, textvariable=y2v, width=5, bg='#2a2a3c', fg='white').pack(side=tk.LEFT)
+                # Confidence
+                tk.Label(cond_params_frame, text="Confidence (0.5-1.0):", fg='white', bg='#1e1e2f').pack()
+                conf_var = tk.DoubleVar(value=action.get('condition', {}).get('confidence', 0.8) if action.get('condition') else 0.8)
+                tk.Scale(cond_params_frame, from_=0.5, to=1.0, resolution=0.01, variable=conf_var, orient=tk.HORIZONTAL,
+                         bg='#1e1e2f', fg='white', troughcolor='#2a2a3c').pack(fill=tk.X)
+                cond_params_frame.vars = (img_path_var, x1v, y1v, x2v, y2v, conf_var)
+                # Сохраняем текущее изображение, если есть
+                if action.get('condition') and action['condition'].get('image'):
+                    cond_params_frame.cached_image = action['condition']['image']
+
+        cond_type_var.trace('w', update_cond_params)
+        update_cond_params()
+
+        def save():
             action['delay_ms'] = delay_var.get()
             if action['type'] == 'click':
-                action['x'] = x_var.get()
-                action['y'] = y_var.get()
+                action['x'] = xv.get()
+                action['y'] = yv.get()
                 action['hold_ms'] = hold_var.get()
-                action['condition_id'] = cond_var.get() if cond_var.get() else None
-                params = f"X={action['x']}, Y={action['y']}"
-                hold = str(action['hold_ms'])
-                cond = action['condition_id'] or '—'
-            else:
+            elif action['type'] == 'key':
                 action['key'] = key_var.get()
-                params = f"Key: {action['key']}"
-                hold = "—"
-                cond = "—"
-            # Обновить отображение
+
+            # Сохраняем условие
+            t = cond_type_var.get()
+            if t == 'none':
+                action['condition'] = None
+            else:
+                cond = {'type': t}
+                if t == 'pixel':
+                    cond['id'] = cond_params_frame.pixel_id_var.get()
+                elif t == 'color_area':
+                    x1, y1, x2, y2, r, g, b = cond_params_frame.vars
+                    cond['area'] = [x1.get(), y1.get(), x2.get(), y2.get()]
+                    cond['color'] = [r.get(), g.get(), b.get()]
+                elif t == 'image_search':
+                    img_path, x1, y1, x2, y2, conf = cond_params_frame.vars
+                    # Загружаем и кодируем изображение
+                    if hasattr(cond_params_frame, 'cached_image'):
+                        cond['image'] = cond_params_frame.cached_image
+                    elif img_path.get():
+                        with open(img_path.get(), 'rb') as f:
+                            cond['image'] = base64.b64encode(f.read()).decode('utf-8')
+                    cond['area'] = [x1.get(), y1.get(), x2.get(), y2.get()]
+                    cond['confidence'] = conf.get()
+                action['condition'] = cond
+
+            action['wait_condition'] = wait_var.get()
+            action['skip_on_true'] = skip_true_var.get()
+            action['skip_on_false'] = skip_false_var.get()
+            cs = contrib_var.get().strip()
+            action['progress_contrib'] = float(cs) if cs else None
+
+            # Обновляем отображение в дереве
             self.actions_tree.item(item, values=(
                 action['type'].capitalize(),
-                params,
+                f"X={action['x']}, Y={action['y']}" if action['type']=='click' else f"Key: {action['key']}" if action['type']=='key' else "Pause",
                 action['delay_ms'],
-                hold,
-                cond
+                str(action.get('hold_ms',0)) if action['type']=='click' else '—',
+                action['condition']['type'] if action.get('condition') else '—',
+                f"{action['progress_contrib']:.2f}" if action['progress_contrib'] is not None else "—"
             ))
-            dialog.destroy()
+            d.destroy()
 
-        ttk.Button(dialog, text="Сохранить", command=save_changes).pack(pady=15)
-        dialog.wait_window()
+        tk.Button(d, text=LANGUAGES[self.lang]['save'], command=save, bg='#3a3a5c', fg='white').pack(pady=15)
 
-    def _update_coords_from_mouse(self, x_var, y_var):
-        x, y = pyautogui.position()
-        x_var.set(x)
-        y_var.set(y)
-
-    def _create_condition_from_current(self, cond_var, cond_combo):
-        x, y = pyautogui.position()
-        try:
-            color = pyautogui.pixel(x, y)
-        except:
-            messagebox.showerror("Ошибка", "Не удалось получить цвет пикселя.")
-            return
-        cond_id = simpledialog.askstring("Идентификатор", "Введите уникальный идентификатор условия:")
-        if not cond_id:
-            return
-        if any(c['id'] == cond_id for c in self.pixel_conditions_dialog.conditions):
-            messagebox.showerror("Ошибка", "Условие с таким ID уже существует.")
-            return
-        self.pixel_conditions_dialog.conditions.append({
-            'id': cond_id,
-            'x': x, 'y': y,
-            'color': color
-        })
-        self.pixel_conditions_dialog.refresh_list()
-        # Обновить список в комбобоксе
-        cond_ids = [''] + [c['id'] for c in self.pixel_conditions_dialog.conditions]
-        cond_combo['values'] = cond_ids
-        cond_var.set(cond_id)
+    def _browse_image(self, var):
+        path = filedialog.askopenfilename(filetypes=[("Images", "*.png *.jpg *.jpeg")])
+        if path:
+            var.set(path)
 
     def _get_key_list(self):
-        """Возвращает список часто используемых клавиш для выпадающего списка."""
         return ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
                 '0','1','2','3','4','5','6','7','8','9',
                 'f1','f2','f3','f4','f5','f6','f7','f8','f9','f10','f11','f12',
@@ -722,26 +1119,26 @@ class ClickerApp:
 
     def _record_key_for_dialog(self, key_var, dialog):
         dialog.grab_release()
-        self.status_var.set("Нажмите клавишу для записи...")
+        self.status_var.set("Press a key...")
         self.waiting_for_key = True
-        # Временно перехватываем нажатие
-        def temp_handler(e):
-            if self.waiting_for_key and e.name not in ('shift', 'ctrl', 'alt', 'windows'):
+        def handler(e):
+            if self.waiting_for_key and e.name not in ('shift','ctrl','alt','windows','right shift','right ctrl','right alt'):
                 self.waiting_for_key = False
+                keyboard.unhook(hook)
                 key_var.set(e.name)
-                self.status_var.set(f"Клавиша '{e.name}' записана.")
+                self.status_var.set(f"Key '{e.name}' recorded.")
                 dialog.grab_set()
-                keyboard.unhook(hook_id)
-        hook_id = keyboard.on_press(temp_handler)
-        # Установим таймаут, чтобы вернуть фокус через 10 секунд, если ничего не нажато
-        def timeout():
-            if self.waiting_for_key:
-                self.waiting_for_key = False
-                self.status_var.set("Запись клавиши отменена по таймауту.")
-                dialog.grab_set()
-                keyboard.unhook(hook_id)
-        self.root.after(10000, timeout)
+        hook = keyboard.on_press(handler)
+        self.root.after(10000, lambda: self._cancel_key_dialog(dialog, hook))
 
+    def _cancel_key_dialog(self, dialog, hook):
+        if self.waiting_for_key:
+            self.waiting_for_key = False
+            keyboard.unhook(hook)
+            self.status_var.set("Recording cancelled")
+            dialog.grab_set()
+
+    # ---------- Cycle control ----------
     def toggle_cycle(self):
         if self.running:
             self.stop_cycle()
@@ -752,364 +1149,277 @@ class ClickerApp:
         if self.running:
             return
         if not self.actions:
-            messagebox.showwarning("Нет действий", "Добавьте хотя бы одно действие.")
+            messagebox.showwarning(LANGUAGES[self.lang]['error'], LANGUAGES[self.lang]['no_actions'])
             return
-        if self.target_hwnd is None:
-            messagebox.showwarning("Не выбрано окно", "Выберите целевое окно.")
-            return
-        if not win32gui.IsWindow(self.target_hwnd):
-            messagebox.showerror("Ошибка", "Выбранное окно больше не существует. Обновите список.")
-            return
-
-        powerlevel = self.powerlevel_var.get()
-        if powerlevel == 1:
+        if self.mode_var.get() == 1:
             try:
-                init_exp = self.exp_initial_var.get()
-                if init_exp <= 0:
-                    messagebox.showerror("Ошибка", "Начальный опыт должен быть > 0")
-                    return
-                self.current_exp = init_exp
-                self.update_exp_display()
-            except tk.TclError:
-                messagebox.showerror("Ошибка", "Некорректное значение опыта")
+                if self.initial_count_var.get() <= 0:
+                    raise ValueError
+                self.current_count = self.initial_count_var.get()
+            except:
+                messagebox.showerror(LANGUAGES[self.lang]['error'], "Invalid initial count")
                 return
-
         self.running = True
-        toggle_key = self.hotkey_toggle_var.get().strip()
-        self.start_stop_btn.config(text=f"Остановить цикл ({toggle_key.upper()})")
-        self.status_var.set("Цикл запущен...")
-
+        self.start_stop_btn.config(text=LANGUAGES[self.lang]['stop'] + f" ({self.hotkey_toggle_var.get().upper()})")
+        self.status_var.set(LANGUAGES[self.lang]['cycle_running'])
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
 
     def stop_cycle(self):
         self.running = False
-        toggle_key = self.hotkey_toggle_var.get().strip()
-        self.start_stop_btn.config(text=f"Запустить цикл ({toggle_key.upper()})")
-        self.status_var.set("Цикл остановлен")
-        self.eta_label.config(text="Осталось примерно: —")
+        self.start_stop_btn.config(text=LANGUAGES[self.lang]['start'] + f" ({self.hotkey_toggle_var.get().upper()})")
+        self.status_var.set(LANGUAGES[self.lang]['cycle_stopped'])
+        self.eta_label.config(text=LANGUAGES[self.lang]['eta_label'].format('—'))
         if self.progress_window:
-            self.progress_window.eta_label.config(text="Осталось примерно: —")
+            self.progress_window.eta_label.config(text='—')
 
-    def _check_pixel_condition(self, condition_id):
-        """Проверяет, совпадает ли текущий цвет пикселя с заданным условием."""
-        if not condition_id:
+    def _check_condition(self, cond):
+        """Возвращает True, если условие выполнено."""
+        if not cond or not self.use_conditions_var.get():
             return True
-        cond = self.pixel_conditions_dialog.get_condition_by_id(condition_id)
-        if not cond:
-            return True
-        try:
-            current_color = pyautogui.pixel(cond['x'], cond['y'])
-        except:
-            return False
-        target = cond['color']
         tol = self.color_tolerance_var.get()
-        return all(abs(current_color[i] - target[i]) <= tol for i in range(3))
-
-    def _screen_to_client(self, hwnd, x, y):
-        """Преобразует экранные координаты в клиентские для указанного окна."""
-        pt = win32gui.Point(x, y)
-        win32gui.ScreenToClient(hwnd, pt)
-        return pt.x, pt.y
-
-    def _send_click(self, x, y, hold_ms=0):
-        """Отправляет клик/зажатие в фоновое окно с преобразованием координат."""
-        if not win32gui.IsWindow(self.target_hwnd):
-            return False
-        client_x, client_y = self._screen_to_client(self.target_hwnd, x, y)
-        lParam = (client_y << 16) | (client_x & 0xFFFF)
-        try:
-            win32gui.PostMessage(self.target_hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lParam)
-            if hold_ms > 0:
-                time.sleep(hold_ms / 1000.0)
-            else:
-                time.sleep(0.05)
-            win32gui.PostMessage(self.target_hwnd, win32con.WM_LBUTTONUP, 0, lParam)
-            return True
-        except Exception as e:
-            if "Отказано в доступе" in str(e) or "Access is denied" in str(e):
-                self.root.after(0, lambda: messagebox.showerror(
-                    "Ошибка доступа",
-                    "Не удалось отправить сообщение в целевое окно.\n"
-                    "Попробуйте запустить программу от имени администратора."
-                ))
-                self.running = False
+        t = cond['type']
+        if t == 'pixel':
+            c = self.pixel_conditions_dialog.get_condition_by_id(cond.get('id'))
+            if not c:
+                return True
+            try:
+                cur = pyautogui.pixel(c['x'], c['y'])
+                return all(abs(cur[i] - c['color'][i]) <= tol for i in range(3))
+            except:
                 return False
-            else:
-                raise
-
-    def _send_key(self, key):
-        """Отправляет нажатие клавиши в фоновое окно."""
-        if not win32gui.IsWindow(self.target_hwnd):
+        elif t == 'color_area':
+            x1, y1, x2, y2 = cond['area']
+            target = cond['color']
+            # Проверяем с шагом 5 для производительности
+            for y in range(y1, y2, 5):
+                for x in range(x1, x2, 5):
+                    try:
+                        cur = pyautogui.pixel(x, y)
+                        if all(abs(cur[i] - target[i]) <= tol for i in range(3)):
+                            return True
+                    except:
+                        pass
             return False
-        vk_code = self._key_to_vk(key)
-        if vk_code is None:
-            return False
-        try:
-            win32gui.PostMessage(self.target_hwnd, win32con.WM_KEYDOWN, vk_code, 0)
-            time.sleep(0.05)
-            win32gui.PostMessage(self.target_hwnd, win32con.WM_KEYUP, vk_code, 0)
-            return True
-        except Exception as e:
-            if "Отказано в доступе" in str(e) or "Access is denied" in str(e):
-                self.root.after(0, lambda: messagebox.showerror(
-                    "Ошибка доступа",
-                    "Не удалось отправить сообщение в целевое окно.\n"
-                    "Попробуйте запустить программу от имени администратора."
-                ))
-                self.running = False
+        elif t == 'image_search':
+            area = cond.get('area', [0, 0, pyautogui.size().width, pyautogui.size().height])
+            conf = cond.get('confidence', 0.8)
+            img_b64 = cond.get('image')
+            if not img_b64:
                 return False
+            if img_b64 in self.image_cache:
+                template = self.image_cache[img_b64]
             else:
-                raise
-
-    def _key_to_vk(self, key):
-        """Преобразует строковое представление клавиши в виртуальный код."""
-        try:
-            return ord(key.upper())
-        except:
-            pass
-        special_keys = {
-            'enter': win32con.VK_RETURN,
-            'space': win32con.VK_SPACE,
-            'tab': win32con.VK_TAB,
-            'escape': win32con.VK_ESCAPE,
-            'backspace': win32con.VK_BACK,
-            'shift': win32con.VK_SHIFT,
-            'ctrl': win32con.VK_CONTROL,
-            'alt': win32con.VK_MENU,
-            'f1': win32con.VK_F1, 'f2': win32con.VK_F2, 'f3': win32con.VK_F3, 'f4': win32con.VK_F4,
-            'f5': win32con.VK_F5, 'f6': win32con.VK_F6, 'f7': win32con.VK_F7, 'f8': win32con.VK_F8,
-            'f9': win32con.VK_F9, 'f10': win32con.VK_F10, 'f11': win32con.VK_F11, 'f12': win32con.VK_F12,
-        }
-        return special_keys.get(key.lower(), None)
+                nparr = np.frombuffer(base64.b64decode(img_b64), np.uint8)
+                template = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                self.image_cache[img_b64] = template
+            x1, y1, x2, y2 = area
+            # Проверка границ
+            if x2 <= x1 or y2 <= y1:
+                return False
+            screenshot = pyautogui.screenshot(region=(x1, y1, x2-x1, y2-y1))
+            screenshot = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+            result = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            return max_val >= conf
+        return True
 
     def _run_loop(self):
-        powerlevel = self.powerlevel_var.get()
+        mode = self.mode_var.get()
         actions = list(self.actions)
 
         while self.running:
-            for action in actions:
+            skip_rest = False
+            for act in actions:
+                if not self.running or skip_rest:
+                    break
+
+                # Задержка перед действием
+                delay = act.get('delay_ms', self.global_delay_ms_var.get())
+                if delay > 0:
+                    time.sleep(delay / 1000.0)
                 if not self.running:
                     break
 
-                if not win32gui.IsWindow(self.target_hwnd):
-                    self.root.after(0, lambda: self.status_var.set("Ошибка: целевое окно закрыто!"))
-                    self.running = False
-                    break
+                # Если задано условие и включена проверка
+                cond_met = True
+                if act.get('condition') and self.use_conditions_var.get():
+                    # Если нужно ждать условие
+                    if act.get('wait_condition', False):
+                        self.root.after(0, lambda: self.status_var.set(f"Waiting for condition: {act['condition'].get('type')}"))
+                        while self.running and not self._check_condition(act['condition']):
+                            time.sleep(0.1)
+                        if not self.running:
+                            break
+                        cond_met = True
+                    else:
+                        cond_met = self._check_condition(act['condition'])
 
-                # Индивидуальная задержка перед действием
-                delay_ms = action.get('delay_ms', self.global_delay_ms_var.get())
-                if delay_ms > 0:
-                    waited = 0.0
-                    while waited < delay_ms / 1000.0 and self.running:
-                        time.sleep(0.01)
-                        waited += 0.01
-                    if not self.running:
-                        break
+                # Обработка пропуска остальных действий
+                if act.get('condition'):
+                    if cond_met and act.get('skip_on_true'):
+                        skip_rest = True
+                    if not cond_met and act.get('skip_on_false'):
+                        skip_rest = True
 
-                # Проверка условия для клика
-                if action['type'] == 'click' and self.use_conditions_var.get():
-                    cond_id = action.get('condition_id')
-                    if cond_id and not self._check_pixel_condition(cond_id):
-                        continue  # пропускаем действие, условие не выполнено
+                if not cond_met:
+                    continue
 
-                if action['type'] == 'click':
-                    hold_ms = action.get('hold_ms', 0)
-                    success = self._send_click(action['x'], action['y'], hold_ms)
-                    desc = f"Клик: ({action['x']}, {action['y']})" + (f" (удержание {hold_ms} мс)" if hold_ms else "")
-                else:
-                    success = self._send_key(action['key'])
-                    desc = f"Клавиша: {action['key']}"
+                # Выполнение действия
+                if act['type'] == 'click':
+                    hold = act.get('hold_ms', 0)
+                    pyautogui.moveTo(act['x'], act['y'])
+                    if hold > 0:
+                        pyautogui.mouseDown()
+                        time.sleep(hold / 1000.0)
+                        pyautogui.mouseUp()
+                    else:
+                        pyautogui.click()
+                elif act['type'] == 'key':
+                    keyboard.press_and_release(act['key'])
+                # тип 'delay' уже учтён в начальной задержке
 
-                if not self.running:
-                    break
-
-                if success:
-                    self.root.after(0, lambda d=desc: self.status_var.set(d))
-                else:
-                    self.root.after(0, lambda: self.status_var.set("Ошибка отправки действия"))
-                    if not self.running:
-                        break
-
-                if powerlevel == 1:
-                    try:
-                        deduction = self.exp_deduction_var.get()
-                        multiplier = self.deduction_mult_var.get()
-                        if multiplier < 0:
-                            multiplier = 0
-                        elif multiplier > 1:
-                            multiplier = 1
-                        actual_deduction = deduction * (1.0 - multiplier)
-                    except tk.TclError:
-                        actual_deduction = 0
-
-                    self.current_exp -= actual_deduction
-                    self.root.after(0, self.update_exp_display)
-
-                    if self.current_exp <= 0:
+                # Учёт прогресса
+                if mode == 1:
+                    contrib = act.get('progress_contrib')
+                    if contrib is not None:
+                        self.current_count -= contrib
+                    elif act['type'] != 'delay':
+                        deduct = self.deduction_var.get()
+                        mult = self.deduction_mult_var.get()
+                        if mult < 0:
+                            mult = 0
+                        elif mult > 1:
+                            mult = 1
+                        self.current_count -= deduct * (1.0 - mult)
+                    self.root.after(0, self.update_count_display)
+                    if self.current_count <= 0:
                         self.running = False
                         self.root.after(0, self._show_completion_message)
                         break
 
+            self.root.after(0, self.update_count_display)
+
         self.root.after(0, lambda: self.start_stop_btn.config(
-            text=f"Запустить цикл ({self.hotkey_toggle_var.get().strip().upper()})"))
-        self.root.after(0, lambda: self.status_var.set("Цикл завершён"))
+            text=LANGUAGES[self.lang]['start'] + f" ({self.hotkey_toggle_var.get().upper()})"))
+        self.root.after(0, lambda: self.status_var.set(LANGUAGES[self.lang]['cycle_finished']))
         self.running = False
 
     def _show_completion_message(self):
-        self.status_var.set("ПРОКАЧКА ЗАВЕРШЕНА. СМЕНИТЕ ИНСТРУМЕНТ")
-        messagebox.showinfo("Прокачка завершена", "ПРОКАЧКА ЗАВЕРШЕНА. СМЕНИТЕ ИНСТРУМЕНТ")
+        self.status_var.set(LANGUAGES[self.lang]['completion_title'])
+        messagebox.showinfo(LANGUAGES[self.lang]['completion_title'], LANGUAGES[self.lang]['completion_message'])
 
     def _calculate_eta(self):
-        if self.powerlevel_var.get() == 0 or not self.running:
-            return "—"
+        if self.mode_var.get() == 0 or not self.running:
+            return '—'
         try:
-            deduction = self.exp_deduction_var.get()
-            multiplier = self.deduction_mult_var.get()
-            if multiplier < 0:
-                multiplier = 0
-            elif multiplier > 1:
-                multiplier = 1
-            actual_deduction = deduction * (1.0 - multiplier)
-            if actual_deduction <= 0:
-                return "∞"
-            actions_count = len(self.actions)
-            if actions_count == 0:
-                return "—"
-
-            total_delay_ms = sum(act.get('delay_ms', self.global_delay_ms_var.get()) for act in self.actions)
-            cycle_time_sec = total_delay_ms / 1000.0
-            remaining_clicks = self.current_exp / actual_deduction
-            total_seconds = remaining_clicks * cycle_time_sec
-
-            minutes = int(total_seconds // 60)
-            seconds = int(total_seconds % 60)
-            if minutes > 0:
-                return f"{minutes} мин {seconds} сек"
-            else:
-                return f"{seconds} сек"
+            total_delay = sum(a.get('delay_ms', self.global_delay_ms_var.get()) for a in self.actions)
+            cycle_time = total_delay / 1000.0
+            contrib = 0.0
+            for a in self.actions:
+                if a.get('progress_contrib') is not None:
+                    contrib += a['progress_contrib']
+                elif a['type'] != 'delay':
+                    d = self.deduction_var.get()
+                    m = self.deduction_mult_var.get()
+                    if m < 0: m = 0
+                    elif m > 1: m = 1
+                    contrib += d * (1.0 - m)
+            if contrib <= 0:
+                return '∞'
+            cycles = self.current_count / contrib
+            secs = cycles * cycle_time
+            m, s = divmod(int(secs), 60)
+            return f"{m} min {s} sec" if m > 0 else f"{s} sec"
         except:
-            return "—"
+            return '—'
 
-    def update_exp_display(self):
+    def update_count_display(self):
         try:
-            init = self.exp_initial_var.get()
-        except tk.TclError:
+            init = self.initial_count_var.get()
+        except:
             init = 0
-        current = self.current_exp
-        percent = (current / init * 100) if init > 0 else 0
-        self.exp_label.config(text=f"Опыт: {current:.2f} / {init:.2f} ({percent:.1f}%)")
-        self.progress['value'] = percent
-
-        eta_text = self._calculate_eta()
-        self.eta_label.config(text=f"Осталось примерно: {eta_text}")
-
+        cur = self.current_count
+        pct = (cur / init * 100) if init > 0 else 0
+        self.count_label.config(text=LANGUAGES[self.lang]['progress_label'].format(cur, init, pct))
+        self.progress['value'] = pct
+        eta = self._calculate_eta()
+        self.eta_label.config(text=LANGUAGES[self.lang]['eta_label'].format(eta))
         if self.progress_window and self.show_progress_window_var.get():
-            self.progress_window.update(current, init, percent, eta_text)
+            self.progress_window.update(cur, init, pct, eta)
 
     def save_profile(self):
-        """Сохранение текущего профиля в JSON."""
         if not self.actions:
-            messagebox.showwarning("Нет действий", "Нечего сохранять.")
+            messagebox.showwarning(LANGUAGES[self.lang]['error'], LANGUAGES[self.lang]['no_actions'])
             return
-        filename = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            title="Сохранить профиль"
-        )
-        if not filename:
+        f = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")])
+        if not f:
             return
-
-        actions_serializable = []
-        for act in self.actions:
-            act_copy = act.copy()
-            act_copy.pop('tree_iid', None)
-            actions_serializable.append(act_copy)
-
-        profile = {
-            'target_title': self.target_title,
+        acts = []
+        for a in self.actions:
+            ac = a.copy()
+            ac.pop('tree_iid', None)
+            acts.append(ac)
+        prof = {
+            'mode': self.mode_var.get(),
+            'initial_count': self.initial_count_var.get(),
+            'deduction': self.deduction_var.get(),
+            'deduction_mult': self.deduction_mult_var.get(),
             'global_delay_ms': self.global_delay_ms_var.get(),
-            'actions': actions_serializable,
+            'actions': acts,
             'hotkeys': {
-                'record_click': self.hotkey_record_click_var.get(),
-                'record_key': self.hotkey_record_key_var.get(),
-                'toggle': self.hotkey_toggle_var.get(),
-                'pick_color': self.hotkey_pick_color_var.get(),
+                'click': self.hotkey_record_click_var.get(),
+                'key': self.hotkey_record_key_var.get(),
+                'toggle': self.hotkey_toggle_var.get()
             },
             'pixel_conditions': self.pixel_conditions_dialog.conditions,
             'color_tolerance': self.color_tolerance_var.get(),
             'use_conditions': self.use_conditions_var.get(),
         }
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(profile, f, indent=2, ensure_ascii=False)
-            self.status_var.set(f"Профиль сохранён: {os.path.basename(filename)}")
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{e}")
+        with open(f, 'w', encoding='utf-8') as fp:
+            json.dump(prof, fp, indent=2, ensure_ascii=False)
+        self.status_var.set(f"Profile saved: {os.path.basename(f)}")
 
     def load_profile(self):
-        """Загрузка профиля из JSON."""
-        filename = filedialog.askopenfilename(
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            title="Загрузить профиль"
-        )
-        if not filename:
+        f = filedialog.askopenfilename(filetypes=[("JSON", "*.json")])
+        if not f:
             return
-        try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                profile = json.load(f)
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить файл:\n{e}")
-            return
-
-        self.target_title = profile.get('target_title', '')
-        if self.target_title:
-            windows = gw.getWindowsWithTitle(self.target_title)
-            if windows:
-                self.target_hwnd = windows[0]._hWnd
-                self.selected_window_label.config(text=f"Выбрано: {self.target_title} (HWND: {self.target_hwnd})")
-                if self.target_title in self.window_combobox['values']:
-                    self.window_combobox.set(self.target_title)
-                else:
-                    self.window_combobox.set('')
-            else:
-                self.target_hwnd = None
-                self.selected_window_label.config(text=f"Окно '{self.target_title}' не найдено")
-                self.window_combobox.set('')
-        else:
-            self.target_hwnd = None
-            self.selected_window_label.config(text="Окно не выбрано")
-
-        self.global_delay_ms_var.set(profile.get('global_delay_ms', 1000))
-
-        hk = profile.get('hotkeys', {})
-        self.hotkey_record_click_var.set(hk.get('record_click', 'f2'))
-        self.hotkey_record_key_var.set(hk.get('record_key', 'f3'))
+        with open(f, 'r', encoding='utf-8') as fp:
+            prof = json.load(fp)
+        self.mode_var.set(prof.get('mode', 0))
+        self.initial_count_var.set(prof.get('initial_count', 100))
+        self.deduction_var.set(prof.get('deduction', 10))
+        self.deduction_mult_var.set(prof.get('deduction_mult', 0.33))
+        self.global_delay_ms_var.set(prof.get('global_delay_ms', 1000))
+        hk = prof.get('hotkeys', {})
+        self.hotkey_record_click_var.set(hk.get('click', 'f2'))
+        self.hotkey_record_key_var.set(hk.get('key', 'f3'))
         self.hotkey_toggle_var.set(hk.get('toggle', 'f1'))
-        self.hotkey_pick_color_var.set(hk.get('pick_color', 'f4'))
-        self.apply_settings()
-
-        self.pixel_conditions_dialog.conditions = profile.get('pixel_conditions', [])
+        self.pixel_conditions_dialog.conditions = prof.get('pixel_conditions', [])
         self.pixel_conditions_dialog.refresh_list()
-        self.color_tolerance_var.set(profile.get('color_tolerance', 10))
-        self.use_conditions_var.set(profile.get('use_conditions', True))
-
+        self.color_tolerance_var.set(prof.get('color_tolerance', 10))
+        self.use_conditions_var.set(prof.get('use_conditions', True))
         self.clear_actions()
-        for act in profile.get('actions', []):
-            if 'delay_ms' not in act:
-                act['delay_ms'] = self.global_delay_ms_var.get()
-            if act['type'] == 'click' and 'hold_ms' not in act:
-                act['hold_ms'] = 0
-            if 'condition_id' not in act:
-                act['condition_id'] = None
-            self.actions.append(act)
-            self._add_action_to_tree(act)
-
-        self.status_var.set(f"Профиль загружен: {os.path.basename(filename)}")
+        for a in prof.get('actions', []):
+            if 'delay_ms' not in a:
+                a['delay_ms'] = self.global_delay_ms_var.get()
+            if 'condition' not in a:
+                a['condition'] = None
+            if 'wait_condition' not in a:
+                a['wait_condition'] = False
+            if 'skip_on_true' not in a:
+                a['skip_on_true'] = False
+            if 'skip_on_false' not in a:
+                a['skip_on_false'] = False
+            if 'progress_contrib' not in a:
+                a['progress_contrib'] = None
+            self.actions.append(a)
+            self._add_action_to_tree(a)
+        self.apply_settings()
+        self.status_var.set(f"Profile loaded: {os.path.basename(f)}")
 
     def run_tray(self):
         self.tray_icon.run()
-
 
 if __name__ == "__main__":
     root = tk.Tk()
