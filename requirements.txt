@@ -1,0 +1,25 @@
+# Clixpert S Pro Ultimate - Зависимости
+
+# Основные
+opencv-python>=4.8.0
+numpy>=1.24.0
+pyautogui>=0.9.54
+keyboard>=0.13.5
+Pillow>=10.0.0
+pystray>=0.19.0
+pywinstyles>=1.8.0
+pynput>=1.7.6
+
+# GUI
+tkinter
+
+# База данных и сеть
+requests>=2.31.0
+
+# Опциональные (требуют установки)
+# pip install pytesseract pytesseract  # для OCR текста
+# pip install plyer  # для уведомлений
+# pip install pyaudio  # для звуковых условий
+
+# Для разработки (опционально)
+# pip install pylint black  # линтеры и форматтеры
